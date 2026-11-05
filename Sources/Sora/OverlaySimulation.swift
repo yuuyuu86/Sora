@@ -21,6 +21,8 @@ final class OverlaySimulation {
         var water: Double = 0
         var seen = true
         var shake: Double = 0
+        var cornerLoad: [Double] = [0, 0]
+        var cornerThreshold: [Double] = [2, 2.5]
         init(id: Int, rect: CGRect) {
             self.id = id; self.rect = rect
             heights = Array(repeating: 0, count: max(1, Int(rect.width / OverlaySimulation.col)))
@@ -215,12 +217,36 @@ final class OverlaySimulation {
                 }
             }
         }
-        // 端からこぼれる
-        for c in [0, n - 1] where s.heights[c] > 2.5 && Double.random(in: 0...1) < dt * 2 {
-            let amt = min(s.heights[c], .random(in: 1...3))
-            s.heights[c] -= amt
-            let x = c == 0 ? s.rect.minX - 2 : s.rect.maxX + 2
-            spawnChunk(x: x, y: s.baseY(c) - amt, vx: c == 0 ? -20 : 20, vy: 0, size: amt)
+        // 角の丸みに乗った雪は外側へ滑る
+        let r = s.id < 0 ? 12.0 : Self.cornerRadius
+        let span = min(n / 2, Int(ceil(r / Self.col)) + 1)
+        for k in 0..<span {
+            let slope = s.cornerDrop(k) / r          // 端ほど急
+            guard slope > 0 else { continue }
+            let rate = min(1, dt * (0.6 + slope * 4))
+            for (c, out) in [(k, k - 1), (n - 1 - k, n - k)] where s.heights[c] > 0.05 {
+                let m = s.heights[c] * rate * 0.5
+                s.heights[c] -= m
+                if out >= 0 && out < n { s.heights[out] += m } else { s.cornerLoad[out < 0 ? 0 : 1] += m }
+            }
+        }
+        // 角の先にたまった雪が、塊になってぽろっと落ちる
+        for side in 0..<2 where s.cornerLoad[side] > s.cornerThreshold[side] {
+            let amt = s.cornerLoad[side]
+            s.cornerLoad[side] = 0
+            s.cornerThreshold[side] = .random(in: 1.2...4)
+            let dir: Double = side == 0 ? -1 : 1
+            let x = side == 0 ? s.rect.minX + 1 : s.rect.maxX - 1
+            let y = s.rect.minY + r * 0.9
+            // 丸みの接線方向に押し出される
+            spawnChunk(x: x + dir * 2, y: y, vx: dir * .random(in: 25...60), vy: .random(in: 10...40), size: min(4.5, 1.6 + amt * 0.7))
+            if amt > 2.2 { spawnChunk(x: x + dir * 4, y: y - 2, vx: dir * .random(in: 15...40), vy: 0, size: amt * 0.5) }
+            // 粉雪が舞う
+            for _ in 0..<Int.random(in: 3...6) where particles.count < 2500 {
+                particles.append(Particle(x: x + dir * .random(in: 0...6), y: y + .random(in: -4...4),
+                                          vx: dir * .random(in: 10...45), vy: .random(in: -25...15),
+                                          size: .random(in: 0.8...1.5), kind: .snow))
+            }
         }
         // 揺れ（ウィンドウ移動後）
         s.shake = max(0, s.shake - dt * 3)
