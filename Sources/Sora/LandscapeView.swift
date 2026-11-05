@@ -51,8 +51,9 @@ struct LandscapeView: View {
     let layout = MeadowLayout()
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30)) { _ in
+        TimelineView(.animation(minimumInterval: 1.0 / 30)) { tl in
             Canvas(rendersAsynchronously: false) { ctx, size in
+                _ = tl.date  // 毎フレーム再描画させる
                 switch AppSettings.shared.landscape {
                 case .meadow: drawMeadow(&ctx, size)
                 }
