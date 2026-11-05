@@ -161,7 +161,13 @@ final class OverlaySimulation {
             if Double.random(in: 0...1) < 0.02 { onSplash?() }
             return true
         case .snow:
-            s.heights[c] = min(maxSnow * 1.3, s.heights[c] + q.size * 0.35)
+            // 見た目が分かる速さで積もるよう、周囲の列へまとめて足す（約1分で十分積もる）
+            let amount = q.size * 1.1
+            for (k, wgt) in [(-2, 0.4), (-1, 0.8), (0, 1.0), (1, 0.8), (2, 0.4)] {
+                let cc = c + k
+                guard cc >= 0, cc < s.heights.count else { continue }
+                s.heights[cc] = min(maxSnow * 1.3, s.heights[cc] + amount * wgt)
+            }
             return true
         case .chunk:
             s.heights[c] = min(maxSnow * 1.5, s.heights[c] + q.size * 0.9)
