@@ -14,7 +14,7 @@ struct WeatherParams: Equatable {
     static func preset(_ kind: WeatherKind, wind: Double) -> WeatherParams {
         var p = WeatherParams(wind: wind)
         switch kind {
-        case .clear: p.cloud = 0.12
+        case .clear: p.cloud = 0.3
         case .cloudy: p.cloud = 0.85
         case .rain: p.cloud = 0.9; p.rain = 0.6
         case .snow: p.cloud = 0.8; p.snow = 0.65

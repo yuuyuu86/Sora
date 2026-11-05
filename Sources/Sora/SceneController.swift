@@ -54,7 +54,9 @@ final class SceneController {
         for p in pairs { p.background.orderOut(nil); p.overlay.orderOut(nil) }
         pairs = NSScreen.screens.map { screen in
             let bg = makeWindow(screen: screen, level: Int(CGWindowLevelForKey(.desktopWindow)) + 1, opaque: true)
-            bg.contentView = NSHostingView(rootView: LandscapeView())
+            // Metal が使えない環境では従来の Canvas 版にフォールバック
+            bg.contentView = MetalLandscapeView(sceneFrame: CGRect(origin: .zero, size: screen.frame.size))
+                ?? NSHostingView(rootView: LandscapeView())
             bg.orderFront(nil)
 
             let sim = OverlaySimulation(screen: screen)

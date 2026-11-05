@@ -74,8 +74,14 @@ final class Atmosphere {
         updateLight()
     }
 
+    /// 確認用に時刻を固定する（nil なら現在時刻）
+    var debugHour: Double?
+
     private func updateLight() {
-        let now = Date()
+        var now = Date()
+        if let hr = debugHour {
+            now = Calendar.current.startOfDay(for: now).addingTimeInterval(hr * 3600)
+        }
         let cal = Calendar.current
         let rep = WeatherService.shared.report
         var sunrise = rep?.sunrise ?? cal.date(bySettingHour: 6, minute: 0, second: 0, of: now)!
