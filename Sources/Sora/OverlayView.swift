@@ -28,14 +28,18 @@ struct OverlayView: View {
                 var path = Path()
                 let n = s.heights.count
                 let wobble = s.shake * 2
-                path.move(to: CGPoint(x: s.rect.minX, y: s.rect.minY + 1))
+                path.move(to: CGPoint(x: s.rect.minX + OverlaySimulation.col / 2, y: s.baseY(0) + 1))
                 for c in 0..<n {
                     let h = s.heights[c]
                     let x = s.rect.minX + Double(c) * OverlaySimulation.col + OverlaySimulation.col / 2
                     let wy = wobble * sin(Double(c) * 0.7 + a.time * 30)
-                    path.addLine(to: CGPoint(x: x, y: s.rect.minY - h + (h > 0.3 ? wy : 0) + 0.5))
+                    path.addLine(to: CGPoint(x: x, y: s.baseY(c) - h + (h > 0.3 ? wy : 0) + 0.5))
                 }
-                path.addLine(to: CGPoint(x: s.rect.maxX, y: s.rect.minY + 1))
+                // 底はウィンドウの角の丸みに沿わせる
+                for c in stride(from: n - 1, through: 0, by: -1) {
+                    let x = s.rect.minX + Double(c) * OverlaySimulation.col + OverlaySimulation.col / 2
+                    path.addLine(to: CGPoint(x: x, y: s.baseY(c) + 1))
+                }
                 path.closeSubpath()
                 layer.fill(path, with: .linearGradient(
                     Gradient(colors: [snowColor.color(0.97), RGB(0.82, 0.86, 0.93).mix(light, 0.4).color(0.95)]),

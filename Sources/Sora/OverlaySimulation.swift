@@ -26,7 +26,24 @@ final class OverlaySimulation {
             heights = Array(repeating: 0, count: max(1, Int(rect.width / OverlaySimulation.col)))
         }
         func surfaceY(_ x: Double) -> Double {
-            rect.minY - heights[col(x)]
+            baseY(col(x)) - heights[col(x)]
+        }
+        /// 角の丸みに沿った、その列の雪の底の位置
+        func baseY(_ c: Int) -> Double {
+            rect.minY + cornerDrop(c)
+        }
+        func cornerDrop(_ c: Int) -> Double {
+            let r = id < 0 ? 12.0 : OverlaySimulation.cornerRadius
+            let x = Double(c) * OverlaySimulation.col + OverlaySimulation.col / 2
+            let dx = min(x, rect.width - x)
+            guard dx < r else { return 0 }
+            let k = r - dx
+            return r - sqrt(max(0, r * r - k * k))
+        }
+        /// 角では丸みで雪が滑るので、積もれる量を減らす
+        func capFactor(_ c: Int) -> Double {
+            let r = id < 0 ? 12.0 : OverlaySimulation.cornerRadius
+            return max(0.15, 1 - cornerDrop(c) / r * 1.6)
         }
         func col(_ x: Double) -> Int {
             max(0, min(heights.count - 1, Int((x - rect.minX) / OverlaySimulation.col)))
@@ -35,6 +52,8 @@ final class OverlaySimulation {
     }
 
     static let col: Double = 4
+    /// ウィンドウの角の半径（macOS 26 以降は大きい）
+    static let cornerRadius: Double = ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 26 ? 20 : 10
 
     let screen: NSScreen
     var size: CGSize
@@ -166,11 +185,11 @@ final class OverlaySimulation {
             for (k, wgt) in [(-2, 0.4), (-1, 0.8), (0, 1.0), (1, 0.8), (2, 0.4)] {
                 let cc = c + k
                 guard cc >= 0, cc < s.heights.count else { continue }
-                s.heights[cc] = min(maxSnow * 1.3, s.heights[cc] + amount * wgt)
+                s.heights[cc] = min(maxSnow * 1.3 * s.capFactor(cc), s.heights[cc] + amount * wgt)
             }
             return true
         case .chunk:
-            s.heights[c] = min(maxSnow * 1.5, s.heights[c] + q.size * 0.9)
+            s.heights[c] = min(maxSnow * 1.5 * s.capFactor(c), s.heights[c] + q.size * 0.9)
             // 小さく舞う
             if q.vy > 200 {
                 particles.append(Particle(x: q.x, y: s.surfaceY(q.x) - 2, vx: .random(in: -40...40),
@@ -201,7 +220,7 @@ final class OverlaySimulation {
             let amt = min(s.heights[c], .random(in: 1...3))
             s.heights[c] -= amt
             let x = c == 0 ? s.rect.minX - 2 : s.rect.maxX + 2
-            spawnChunk(x: x, y: s.rect.minY - amt, vx: c == 0 ? -20 : 20, vy: 0, size: amt)
+            spawnChunk(x: x, y: s.baseY(c) - amt, vx: c == 0 ? -20 : 20, vy: 0, size: amt)
         }
         // 揺れ（ウィンドウ移動後）
         s.shake = max(0, s.shake - dt * 3)
@@ -230,7 +249,7 @@ final class OverlaySimulation {
             s.heights[c] -= take
             if c % 2 == 0 || take > 2 {
                 let x = s.rect.minX + Double(c) * Self.col + 2
-                spawnChunk(x: x, y: s.rect.minY - s.heights[c] - take * 0.5,
+                spawnChunk(x: x, y: s.baseY(c) - s.heights[c] - take * 0.5,
                            vx: vx + .random(in: -spread...spread), vy: vy + .random(in: -spread...spread * 0.4), size: take * 1.4)
             }
         }
@@ -338,7 +357,7 @@ final class OverlaySimulation {
             for c in c0...c1 {
                 let h = s.heights[c]
                 guard h > 0.4 else { continue }
-                let top = s.rect.minY - h
+                let top = s.baseY(c) - h
                 guard local.y > top - 8 else { continue }
                 let take = fast ? h : h * min(0.5, speed / 1500 + 0.15)
                 s.heights[c] -= take
