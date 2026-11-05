@@ -99,7 +99,7 @@ final class MetalLandscapeView: MTKView, MTKViewDelegate {
             sun: SIMD4(sunDir, 2.6),
             moon: SIMD4(moonDir, moonVis),
             w1: [Float(p.cloud), Float(p.rain), Float(p.snow), Float(p.fog)],
-            w2: [Float(a.flash * (0.4 + 0.6 * s.intensity)), Float(p.wind), Float(a.snowGround), 1.25],
+            w2: [Float(a.flash * (0.4 + 0.6 * s.intensity)), Float(p.wind), Float(a.snowGround), 1.25 + 1.3 * moonVis],
             misc: [s.showSunMoon ? 1 : 0, cloudOffset.x, cloudOffset.y, Float(s.intensity)])
 
         enc.setRenderPipelineState(skyPipeline)

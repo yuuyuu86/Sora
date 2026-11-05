@@ -95,6 +95,8 @@ float3 ambientColor(constant U& u) {
     return mix(up * 0.9, (up + hor) * 0.6, over) + float3(0.012, 0.016, 0.03);
 }
 
+float vignette(float2 uv) { return 1.0 - 0.22 * pow(clamp(length((uv - 0.5) * float2(1.0, 1.25)) * 1.25, 0.0, 1.0), 2.2); }
+
 float3 snowTint(float3 c, float k) { return mix(c, float3(0.85, 0.88, 0.93), k); }
 
 // ---- 背景（空・雲・丘・地面）----
@@ -128,6 +130,12 @@ fragment float4 skyFragment(VOut in [[stage_in]], constant U& u [[buffer(0)]]) {
     float az = d.x / d.z;
     float hill1 = 0.03 + 0.05 * fbm(float2(az * 1.7 + 3.0, 0.5), 4);
     float hill2 = 0.006 + 0.022 * fbm(float2(az * 3.1 + 11.0, 2.5), 4);
+    // 木立（ところどころに固まって生える）
+    float grove = smoothstep(0.5, 0.62, fbm(float2(az * 2.3 + 5.0, 1.0), 3));
+    float crown = noise(float2(az * 140.0, 0.5)) * 0.6 + noise(float2(az * 420.0, 1.5)) * 0.4;
+    hill2 += grove * (0.004 + 0.012 * crown);
+    float3 nearBase = snowTint(float3(0.035, 0.06, 0.025) * (0.8 + 0.4 * fbm(float2(az * 60.0, d.y * 400.0), 2)), sg * 0.75 * (1.0 - grove * 0.5));
+    float3 nearHill = mix(nearBase * (L * max(s.y, 0.0) * 0.8 + A * 1.2), horizonCol, clamp(0.25 + haze * 0.5, 0.0, 0.98));
 
     if (d.y > 0.0 && d.y > hill1) {
         // 空
@@ -156,6 +164,18 @@ fragment float4 skyFragment(VOut in [[stage_in]], constant U& u [[buffer(0)]]) {
         moonDisk *= 1.0 - smoothstep(0.99975, 0.99985, dot(d, mOff)) * 0.85;
         float3 moonC = float3(0.55, 0.58, 0.62) * (moonDisk + pow(max(mm, 0.0), 2000.0) * 0.1) * u.moon.w * show;
 
+        // 巻雲（高い薄い雲）
+        {
+            float th = CLOUD_H * 2.5 / max(d.y, 0.01);
+            float2 hp = d.xz * th * 0.02 + u.misc.yz * 0.6;
+            float ci = fbm(float2(hp.x * 1.0, hp.y * 4.0) + fbm(hp * 2.0, 2), 4);
+            float cd = smoothstep(0.55, 0.85, ci) * smoothstep(0.02, 0.15, d.y) * (0.25 + 0.5 * smoothstep(0.1, 0.6, cloud));
+            float3 cc = L * (0.9 + 0.8 * pow(max(dot(d, s), 0.0), 8.0)) + A * 0.8;
+            col = mix(col, cc, cd * 0.45 * (1.0 - rain));
+        }
+        // 太陽まわりのかすかな光
+        col += sunTransmittance(s) * u.sun.w * pow(max(dot(d, s), 0.0), 12.0) * 0.06 * smoothstep(-0.05, 0.05, s.y);
+
         // 雲（平面に投影したボリューム風の雲）
         float t = CLOUD_H / max(d.y, 0.01);
         float2 cp = d.xz * t;
@@ -163,9 +183,10 @@ fragment float4 skyFragment(VOut in [[stage_in]], constant U& u [[buffer(0)]]) {
         float alpha = 0.0;
         if (dens > 0.001) {
             float dl = cloudDensity(cp + s.xz * 1.6, u);
-            float shadow = exp(-dl * 2.4);
+            float shadow = exp(-dl * 3.2);
+            float edge = smoothstep(0.0, 0.5, dens); // 縁は明るく薄く
             float phase = 1.0 + 1.6 * pow(max(mu, 0.0), 6.0);
-            float3 cc = L * (0.25 + 1.1 * shadow) * phase + A * 0.85;
+            float3 cc = L * (0.2 + 1.2 * shadow) * phase * mix(1.25, 1.0, edge) + A * mix(1.0, 0.7, edge);
             cc *= mix(1.0, 0.55, rain * 0.8 + u.w1.x * 0.15);
             cc += float3(0.7, 0.75, 0.95) * flash * 1.8;
             alpha = dens * smoothstep(0.0, 0.08, d.y);
@@ -179,15 +200,16 @@ fragment float4 skyFragment(VOut in [[stage_in]], constant U& u [[buffer(0)]]) {
         col += float3(0.5, 0.55, 0.7) * flash * 0.25;
     } else if (d.y > 0.0) {
         // 遠景の丘
-        bool near = d.y < hill2;
-        float3 base = near ? float3(0.05, 0.09, 0.035) : float3(0.06, 0.08, 0.07);
-        float tex = fbm(float2(az * 40.0, d.y * 300.0), 3);
-        base *= 0.8 + 0.4 * tex;
-        base = snowTint(base, sg * 0.85);
-        float3 c = base * (L * max(s.y, 0.0) * 0.8 + A * 1.2);
-        float aerial = near ? 0.22 : 0.45;
-        aerial = clamp(aerial + haze * 0.3, 0.0, 0.98);
-        col = mix(c, horizonCol, aerial);
+        if (d.y < hill2) {
+            col = nearHill;
+        } else {
+            // 尾根の陰影
+            float ridge = fbm(float2(az * 9.0, d.y * 60.0), 4);
+            float lit = 0.75 + 0.5 * ridge * (0.5 + 0.5 * sign(s.x) * (fract(az * 1.3) - 0.5));
+            float3 base = snowTint(float3(0.06, 0.08, 0.07) * lit, sg * 0.85);
+            float3 c = base * (L * max(s.y, 0.0) * 0.8 + A * 1.2);
+            col = mix(c, horizonCol, clamp(0.5 + haze * 0.35, 0.0, 0.98));
+        }
     } else {
         // 地面
         float t = CAM_H / max(-d.y, 0.0005);
@@ -211,9 +233,10 @@ fragment float4 skyFragment(VOut in [[stage_in]], constant U& u [[buffer(0)]]) {
         c += float3(0.5, 0.55, 0.7) * flash * 0.08;
         float fd = 0.012 + fog * 0.35 + rain * 0.06 + snow * 0.03;
         col = mix(c, horizonCol * mix(0.5, 0.95, haze), 1.0 - exp(-t * fd));
+        col = mix(col, nearHill, smoothstep(25.0, 90.0, t));
     }
 
-    col = tonemap(col, u.w2.w);
+    col = tonemap(col, u.w2.w) * vignette(uv);
     return float4(col, 1.0);
 }
 
@@ -235,8 +258,11 @@ vertex GOut grassVertex(uint vid [[vertex_id]], uint iid [[instance_id]],
     float z = zmax * pow(zmin / zmax, k);
     float x = (r1 - 0.5) * z * aspect * 1.15;
 
-    float h = (0.07 + 0.13 * r2 * r2) * (1.0 - 0.55 * sg);
-    float w = 0.0035 + 0.0035 * r3;
+    float patch = fbm(float2(x, z) * 0.45 + 3.0, 3);      // 群生の濃淡
+    float dry = smoothstep(0.55, 0.75, fbm(float2(x, z) * 0.25 + 11.0, 3)); // 枯れ草まじり
+    bool stalk = r2 > 0.965;                              // 穂の出た茎
+    float h = (0.06 + 0.13 * r2 * r2) * (0.6 + 0.8 * patch) * (stalk ? 1.5 : 1.0) * (1.0 - 0.8 * sg * (stalk ? 0.4 : 1.0));
+    float w = (0.0035 + 0.0035 * r3) * (stalk ? 0.45 : 1.0) * (1.0 - 0.55 * sg);
 
     uint seg = vid / 2;
     float side = (vid == 6) ? 0.0 : ((vid % 2 == 0) ? -1.0 : 1.0);
@@ -255,9 +281,11 @@ vertex GOut grassVertex(uint vid [[vertex_id]], uint iid [[instance_id]],
     float2 suv = float2(wp.x / wp.z / aspect + 0.5, wp.y / wp.z + HY);
 
     // 色
-    float3 base = mix(float3(0.025, 0.06, 0.012), float3(0.2, 0.28, 0.06), t);
-    base = mix(base, float3(0.3, 0.3, 0.08) * t, r3 * 0.35);
-    base = snowTint(base, sg * t * t * 0.8);
+    float3 tipCol = mix(float3(0.17, 0.27, 0.05), float3(0.24, 0.3, 0.07), patch);
+    tipCol = mix(tipCol, float3(0.36, 0.32, 0.12), dry * (0.4 + 0.6 * r3));
+    float3 base = mix(float3(0.02, 0.05, 0.01), tipCol, t);
+    if (stalk) base = mix(base, float3(0.38, 0.32, 0.16), smoothstep(0.6, 1.0, t));
+    base = snowTint(base, sg * smoothstep(0.5, 1.0, t) * 0.35);
     base *= mix(1.0, 0.75, u.w1.y);
 
     float3 L = lightColor(u);
@@ -267,6 +295,8 @@ vertex GOut grassVertex(uint vid [[vertex_id]], uint iid [[instance_id]],
     float back = pow(max(s.z, 0.0), 2.0) * (1.0 - smoothstep(0.0, 0.5, s.y)); // 逆光で透ける
     float3 c = base * (L * (max(s.y, 0.0) * 1.4 + back * t * 1.2) * shadow + A * 1.2);
     c += float3(0.5, 0.55, 0.7) * u.w2.x * 0.06;
+    // 風で倒れた葉の裏が光る（風の波）
+    c *= 1.0 + max(gust, 0.0) * t * (0.25 + abs(wind) * 0.6);
 
     float3 horizonCol = skyAt(normalize(float3(x / z, 0.03, 1.0)), u);
     float3 overcast = (A + L * 0.25);
@@ -277,7 +307,7 @@ vertex GOut grassVertex(uint vid [[vertex_id]], uint iid [[instance_id]],
 
     GOut o;
     o.pos = float4(suv * 2.0 - 1.0, 0, 1);
-    o.color = tonemap(c, u.w2.w);
+    o.color = tonemap(c, u.w2.w) * vignette(suv);
     return o;
 }
 
